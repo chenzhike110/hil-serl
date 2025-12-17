@@ -39,10 +39,10 @@ class MultiCameraBinaryRewardClassifierWrapper(gym.Wrapper):
     which is not part of the observation space
     """
 
-    def __init__(self, env: Env, reward_classifier_func, target_hz = None):
+    def __init__(self, env: Env, reward_classifier_func, score_display_queue=None):
         super().__init__(env)
         self.reward_classifier_func = reward_classifier_func
-        self.target_hz = target_hz
+        self.score_display_queue = score_display_queue
 
     def compute_reward(self, obs):
         if self.reward_classifier_func is not None:
@@ -50,19 +50,19 @@ class MultiCameraBinaryRewardClassifierWrapper(gym.Wrapper):
         return 0
 
     def step(self, action):
-        start_time = time.time()
         obs, rew, done, truncated, info = self.env.step(action)
         rew = self.compute_reward(obs)
         done = done or rew
         info['succeed'] = bool(rew)
-        if self.target_hz is not None:
-            time.sleep(max(0, 1/self.target_hz - (time.time() - start_time)))
-            
+        if self.score_display_queue is not None:
+            self.score_display_queue.put(rew)
         return obs, rew, done, truncated, info
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         info['succeed'] = False
+        if self.score_display_queue is not None:
+            self.score_display_queue.put(0)
         return obs, info
     
     
@@ -224,7 +224,7 @@ class SpacemouseIntervention(gym.ActionWrapper):
         - action: spacemouse action if nonezero; else, policy action
         """
         expert_a, buttons = self.expert.get_action()
-        self.left, self.right = tuple(buttons)
+        self.left, self.right = buttons[0], buttons[1]
         intervened = False
         
         if np.linalg.norm(expert_a) > 0.001:
@@ -394,4 +394,16 @@ class DualGripperPenaltyWrapper(gym.RewardWrapper):
         if "intervene_action" in info:
             action = info["intervene_action"]
         reward = self.reward(reward, action)
+        return observation, reward, terminated, truncated, info
+
+class TimeLimitWrapper(gym.Wrapper):
+    def __init__(self, env, target_hz):
+        super().__init__(env)
+        self.target_hz = target_hz
+
+    def step(self, action):
+        start_time = time.time()
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        # print(f"Time taken to step: {time.time() - start_time}")
+        time.sleep(max(0, 1/self.target_hz - (time.time() - start_time)))
         return observation, reward, terminated, truncated, info

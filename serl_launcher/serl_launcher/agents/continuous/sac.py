@@ -495,6 +495,16 @@ class SACAgent(flax.struct.PyTreeNode):
                 )
                 for image_key in image_keys
             }
+        elif encoder_type == "dinov3-pretrained":
+            from serl_launcher.vision.dino_v3 import PreTrainedDinoV3Encoder
+            encoders = {
+                image_key: PreTrainedDinoV3Encoder(
+                    pooling_method="flatten_register_tokens",
+                    bottleneck_dim=256,
+                    name=f"encoder_{image_key}",
+                )
+                for image_key in image_keys
+            }
         else:
             raise NotImplementedError(f"Unknown encoder type: {encoder_type}")
 

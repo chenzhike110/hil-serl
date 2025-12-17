@@ -11,6 +11,7 @@ import os
 from tqdm import tqdm
 
 from serl_launcher.vision.resnet_v1 import resnetv1_configs, PreTrainedResNetEncoder
+from serl_launcher.vision.dino_v3 import PreTrainedDinoV3Encoder
 from serl_launcher.common.encoding import EncodingWrapper
 
 
@@ -48,28 +49,45 @@ def create_classifier(
     key: jnp.ndarray,
     sample: Dict,
     image_keys: List[str],
+    encoder_type: str = "resnet-pretrained",
     n_way: int = 2,
 ):
-    pretrained_encoder = resnetv1_configs["resnetv1-10-frozen"](
-        pre_pooling=True,
-        name="pretrained_encoder",
-    )
-    encoders = {
-        image_key: PreTrainedResNetEncoder(
-            pooling_method="spatial_learned_embeddings",
-            num_spatial_blocks=8,
-            bottleneck_dim=256,
-            pretrained_encoder=pretrained_encoder,
-            name=f"encoder_{image_key}",
+    if encoder_type == "resnet-pretrained":
+        pretrained_encoder = resnetv1_configs["resnetv1-10-frozen"](
+            pre_pooling=True,
+            name="pretrained_encoder",
         )
-        for image_key in image_keys
-    }
-    encoder_def = EncodingWrapper(
-        encoder=encoders,
-        use_proprio=False,
-        enable_stacking=True,
-        image_keys=image_keys,
-    )
+        encoders = {
+            image_key: PreTrainedResNetEncoder(
+                pooling_method="spatial_learned_embeddings",
+                num_spatial_blocks=8,
+                bottleneck_dim=256,
+                pretrained_encoder=pretrained_encoder,
+                name=f"encoder_{image_key}",
+            )
+            for image_key in image_keys
+        }
+        encoder_def = EncodingWrapper(
+            encoder=encoders,
+            use_proprio=False,
+            enable_stacking=True,
+            image_keys=image_keys,
+        )
+    elif encoder_type == "dinov3-pretrained":
+        encoders = {
+            image_key: PreTrainedDinoV3Encoder(
+                pooling_method="flatten_register_tokens",
+                bottleneck_dim=256,
+                name=f"encoder_{image_key}",
+            )
+            for image_key in image_keys
+        }
+        encoder_def = EncodingWrapper(
+            encoder=encoders,
+            use_proprio=False,
+            enable_stacking=True,
+            image_keys=image_keys,
+        )
     if n_way == 2:
         classifier_def = BinaryClassifier(encoder_def=encoder_def)
     else:
@@ -139,12 +157,13 @@ def load_classifier_func(
     image_keys: List[str],
     checkpoint_path: str,
     n_way: int = 2,
+    encoder_type: str = "resnet-pretrained",
 ) -> Callable[[Dict], jnp.ndarray]:
     """
     Return: a function that takes in an observation
             and returns the logits of the classifier.
     """
-    classifier = create_classifier(key, sample, image_keys, n_way=n_way)
+    classifier = create_classifier(key, sample, image_keys, n_way=n_way, encoder_type=encoder_type)
     classifier = checkpoints.restore_checkpoint(
         checkpoint_path,
         target=classifier,
